@@ -1,0 +1,14 @@
+menu "Button Lib Configuration"
+
+    config LONG_PRESS_DURATION
+        int "Long Press Duration (seconds)"
+        default 2
+        help
+            For the BUTTON_HELD event, the amount of time the button is to be held before the event is fired.
+
+    config LONG_PRESS_REPEAT
+        int "Long Press Report (in ms)"
+        default 50
+        help
+            For the BUTTON_HELD event, the amount of time to repeat the event.
+endmenu

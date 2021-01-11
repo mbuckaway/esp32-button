@@ -21,9 +21,12 @@ typedef struct {
   uint32_t next_long_time;
 } debounce_t;
 
-int pin_count = -1;
-debounce_t * debounce;
-QueueHandle_t queue;
+static int pin_count = -1;
+static debounce_t * debounce;
+static QueueHandle_t queue;
+static const uint16_t MAX_PIN_COUNT = 39;
+static const uint32_t LONG_PRESS_DURATION = (CONFIG_LONG_PRESS_DURATION*1000);
+static const uint32_t LONG_PRESS_REPEAT = (CONFIG_LONG_PRESS_REPEAT);
 
 static void update_button(debounce_t *d) {
     d->history = (d->history << 1) | gpio_get_level(d->pin);
@@ -53,9 +56,6 @@ static bool button_up(debounce_t *d) {
     return button_fell(d);
 }
 
-#define LONG_PRESS_DURATION (2000)
-#define LONG_PRESS_REPEAT (50)
-
 static uint32_t millis() {
     return esp_timer_get_time() / 1000;
 }
@@ -74,17 +74,17 @@ static void button_task(void *pvParameter)
         for (int idx=0; idx<pin_count; idx++) {
             update_button(&debounce[idx]);
             if (debounce[idx].down_time && millis() >= debounce[idx].next_long_time) {
-                ESP_LOGI(TAG, "%d LONG", debounce[idx].pin);
+                ESP_LOGD(TAG, "%d LONG", debounce[idx].pin);
                 debounce[idx].next_long_time = debounce[idx].next_long_time + LONG_PRESS_REPEAT;
                 send_event(debounce[idx], BUTTON_HELD);
             } else if (button_down(&debounce[idx]) && debounce[idx].down_time == 0) {
                 debounce[idx].down_time = millis();
-                ESP_LOGI(TAG, "%d DOWN", debounce[idx].pin);
+                ESP_LOGD(TAG, "%d DOWN", debounce[idx].pin);
                 debounce[idx].next_long_time = debounce[idx].down_time + LONG_PRESS_DURATION;
                 send_event(debounce[idx], BUTTON_DOWN);
             } else if (button_up(&debounce[idx])) {
                 debounce[idx].down_time = 0;
-                ESP_LOGI(TAG, "%d UP", debounce[idx].pin);
+                ESP_LOGD(TAG, "%d UP", debounce[idx].pin);
                 send_event(debounce[idx], BUTTON_UP);
             }
         }
@@ -92,11 +92,19 @@ static void button_task(void *pvParameter)
     }
 }
 
+/**
+ * @brief Initialize the button library with the pin map. All pins are set to floating.
+ * @param pin_select built by (PIN_BIT(PIN1) | PIN_BIT(PIN2) | ...)
+ */
 QueueHandle_t button_init(unsigned long long pin_select) {
     return pulled_button_init(pin_select, GPIO_FLOATING);
 }
 
-
+/**
+ * @brief Initialize the button library with the pin map. All pins are set to floating.
+ * @param pin_select built by (PIN_BIT(PIN1) | PIN_BIT(PIN2) | ...)
+ * @param pull_mode one of GPIO_PULLUP_ONLY, GPIO_PULLDOWN_ONLY, or GPIO_PULLUP_PULLDOWN to set the GPIO pull up/down resistors
+ */
 QueueHandle_t pulled_button_init(unsigned long long pin_select, gpio_pull_mode_t pull_mode)
 {
     if (pin_count != -1) {
@@ -105,16 +113,18 @@ QueueHandle_t pulled_button_init(unsigned long long pin_select, gpio_pull_mode_t
     }
 
     // Configure the pins
-    gpio_config_t io_conf;
-    io_conf.mode = GPIO_MODE_INPUT;
-    io_conf.pull_up_en = (pull_mode == GPIO_PULLUP_ONLY || pull_mode == GPIO_PULLUP_PULLDOWN);
-    io_conf.pull_down_en = (pull_mode == GPIO_PULLDOWN_ONLY || pull_mode == GPIO_PULLUP_PULLDOWN);;
-    io_conf.pin_bit_mask = pin_select;
+    gpio_config_t io_conf = {
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = (pull_mode == GPIO_PULLUP_ONLY || pull_mode == GPIO_PULLUP_PULLDOWN),
+        .pull_down_en = (pull_mode == GPIO_PULLDOWN_ONLY || pull_mode == GPIO_PULLUP_PULLDOWN),
+        .pin_bit_mask = pin_select,
+        .intr_type = GPIO_PIN_INTR_DISABLE,
+    };
     gpio_config(&io_conf);
 
     // Scan the pin map to determine number of pins
     pin_count = 0;
-    for (int pin=0; pin<=39; pin++) {
+    for (int pin=0; pin<=MAX_PIN_COUNT; pin++) {
         if ((1ULL<<pin) & pin_select) {
             pin_count++;
         }
